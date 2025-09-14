@@ -13,7 +13,6 @@ from config import (
     MINISTRY_MASTER_DATA, FILENAME_YEAR_MAP, MINISTRY_NAME_VARIATIONS
 )
 from utils.normalization import normalize_text
-# from pipeline.manager import check_for_cancellation  <- この行を削除しました
 
 # ロガーの設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,7 +52,6 @@ def run_stage_01_convert(update_status: Callable, job_id: str, target_files: Opt
 
     total_files = len(source_paths)
     for i, path in enumerate(source_paths):
-        # update_statusを呼び出すと、内部でキャンセルチェックが実行されます
         update_status(message=f"ファイル {i+1}/{total_files} を処理中: {path.name}")
         logging.info(f"Processing '{path.name}'...")
         if path.suffix == '.zip':
@@ -87,7 +85,6 @@ def run_stage_02_normalize(update_status: Callable, job_id: str):
 
     total_files = len(csv_files)
     for i, input_path in enumerate(csv_files):
-        # update_statusを呼び出すと、内部でキャンセルチェックが実行されます
         update_status(message=f"ファイル {i+1}/{total_files} を正規化中: {input_path.name}")
         output_path = NORMALIZED_DIR / input_path.name
         try:
@@ -101,7 +98,8 @@ def run_stage_02_normalize(update_status: Callable, job_id: str):
                     writer.writerow([normalize_text(cell) for cell in header])
                 
                 for row in reader:
-                    writer.writerow([normalize_text(cell) for cell in row])
+                    normalized_row = [normalize_text(cell.replace('\\n', '\n')) for cell in row]
+                    writer.writerow(normalized_row)
 
         except Exception as e:
             logging.error(f"  [ERROR] Failed to process {input_path.name}: {e}", exc_info=True)
@@ -125,41 +123,91 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
     # 2. Build Business Master
     update_status(message="事業マスターを生成中...")
     all_business_records = []
-    review_sheets = sorted(list(NORMALIZED_DIR.glob('*レビューシート*.csv')))
-    if not review_sheets:
-        logging.warning("[Stage 3] No '*レビューシート*.csv' files found. Cannot build business master.")
-        update_status(message="事業レビューシートCSVが見つかりません。事業マスターの構築をスキップします。")
+    
+    REQUIRED_COLS_FOR_REVIEW_SHEET = {'府省', '府省庁', '事業名', '事業番号', '事業番号-1'}
+    EXCLUSION_COL = 'セグメント名'
+    
+    FINAL_OUTPUT_COLS = [
+        'business_id', 'source_year', 'ministry_id', '府省庁',
+        '事業番号-1', '事業番号-2', '事業番号-3', '事業番号-4', '事業番号-5',
+        '事業名', '担当部局庁', '作成責任者', '事業開始終了年度', '担当課室',
+        '会計区分', '根拠法令（具体的な条項も記載）', '関係する計画、通知等',
+        '政策', '施策', '政策体系・評価書URL', '主要経費', '事業の目的',
+        '現状・課題', '事業概要', '事業概要URL', '実施方法'
+    ]
+    
+    all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
+    
+    if not all_csv_files:
+        logging.warning("[Stage 3] No .csv files found. Skipping.")
+        update_status(message="正規化済みCSVが見つかりません。")
         return
 
     def get_year_from_filename(filename):
         for key, year in FILENAME_YEAR_MAP.items():
             if key in filename: return year
         return None
-    
-    total_files = len(review_sheets)
-    for i, filepath in enumerate(review_sheets):
-        # update_statusを呼び出すと、内部でキャンセルチェックが実行されます
-        update_status(message=f"レビューシート {i+1}/{total_files} を処理中: {filepath.name}")
 
+    total_files = len(all_csv_files)
+    for i, filepath in enumerate(all_csv_files):
+        update_status(message=f"ファイル {i+1}/{total_files} を分析中: {filepath.name}")
         file_year = get_year_from_filename(filepath.name)
         if not file_year:
             logging.warning(f"Could not determine year for '{filepath.name}'. Skipping.")
             continue
         
         try:
-            df = pd.read_csv(filepath, low_memory=False, dtype=str)
-            df.rename(columns={'府省': '府省庁'}, inplace=True)
+            # Pandasでファイルを読み込む (重複列は自動でリネームされる)
+            df = pd.read_csv(filepath, low_memory=False, dtype=str, encoding='utf-8-sig')
+
+            # 判定用にクリーンな列名リストを作成
+            cleaned_header = [str(col).replace('\n', '').replace('\r', '').replace(' ', '') for col in df.columns]
+
+            if EXCLUSION_COL in cleaned_header:
+                logging.info(f"Skipping '{filepath.name}' due to exclusion column.")
+                continue
+            if len(REQUIRED_COLS_FOR_REVIEW_SHEET.intersection(cleaned_header)) < 3:
+                logging.info(f"Skipping '{filepath.name}' as not a review sheet.")
+                continue
+
+            # あいまい検索で列名をリネーム
+            rename_map = {}
+            for original_col in df.columns:
+                clean_col = str(original_col).replace('\n', '').replace('\r', '').replace(' ', '')
+                
+                if clean_col == '府省': rename_map[original_col] = '府省庁'
+                elif clean_col == '事業番号': rename_map[original_col] = '事業番号-1'
+                elif clean_col.startswith('事業の目的'): rename_map[original_col] = '事業の目的'
+                elif clean_col.startswith('事業概要'): rename_map[original_col] = '事業概要'
+                elif clean_col.startswith('根拠法令'): rename_map[original_col] = '根拠法令（具体的な条項も記載）'
+                elif clean_col.startswith('現状・課題'): rename_map[original_col] = '現状・課題'
+                elif clean_col in ('政策・施策名', '主要政策・施策'): rename_map[original_col] = '政策'
+                elif clean_col == '主要施策': rename_map[original_col] = '施策'
+            df.rename(columns=rename_map, inplace=True)
             
+            # リネームによって生じた重複列を削除（最初の列を保持）
+            df = df.loc[:, ~df.columns.duplicated(keep='first')]
+            
+            # 事業開始・終了年度の結合
+            df['事業開始終了年度'] = ''
+            if '事業開始・終了(予定)年度' in df.columns:
+                df['事業開始終了年度'] = df['事業開始・終了(予定)年度'].fillna('')
+            
+            if '事業開始年度' in df.columns and '事業終了(予定)年度' in df.columns:
+                start_year = df['事業開始年度'].fillna('')
+                end_year = df['事業終了(予定)年度'].fillna('')
+                combined_year = start_year.str.cat(end_year, sep='-').where(start_year.ne('') & end_year.ne(''), '')
+                df['事業開始終了年度'] = df['事業開始終了年度'].where(df['事業開始終了年度'].ne(''), combined_year)
+
             df['business_id'] = [f"{file_year}-{str(idx+1).zfill(5)}" for idx in range(len(df))]
-            df['source_file'] = filepath.name
             df['source_year'] = file_year
+            
             all_business_records.append(df)
         except Exception as e:
             logging.error(f"    [ERROR] Failed to process {filepath.name}: {e}", exc_info=True)
             raise
     
     if all_business_records:
-        # 最終的な結合処理の前にも念のためチェック
         update_status(message="全レビューシートを結合中...")
         master_df = pd.concat(all_business_records, ignore_index=True)
         
@@ -168,14 +216,9 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
              master_df['normalized_ministry_name'] = master_df['府省庁'].replace(MINISTRY_NAME_VARIATIONS)
              master_df['ministry_id'] = master_df['normalized_ministry_name'].map(ministry_name_to_id).astype('Int64')
         
-        output_cols = [
-            'business_id', 'source_year', 'ministry_id', '府省庁', '事業名', '事業番号', 
-            '事業番号-1', '事業番号-2', '事業番号-3', '事業番号-4', '事業番号-5',
-            'source_file'
-        ]
-        final_cols = [col for col in output_cols if col in master_df.columns]
-        final_df = master_df[final_cols]
+        final_df = master_df.reindex(columns=FINAL_OUTPUT_COLS)
         
+        # ファイル名を 'business_master.csv' に修正
         business_output_path = PROCESSED_DIR / 'business_master.csv'
         final_df.to_csv(business_output_path, index=False, encoding='utf-8-sig')
         logging.info(f"  - Saved 'business_master.csv' with {len(final_df)} records.")
