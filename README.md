@@ -1,4 +1,4 @@
-# 行政事業レビューシート データ処理パイプライン API
+# 行政事業レビューシート データ処理パイプライン API v1.0.0 (Stable)
 
 ## 概要
 
@@ -9,7 +9,8 @@ FastAPIフレームワークを使用し、フロントエンドアプリケー�
 ## 主な機能
 
 - **非同期パイプライン処理**: 重いデータ処理をバックグラウンドで実行し、APIサーバーの応答性を維持します。
-- **多段階のデータ処理**: `Excel/ZIP -> 生CSV -> 正規化済みCSV -> マスターテーブル` の4段階でデータを変換・構築します。
+- **多段階のデータ処理**: `Excel/ZIP -> 生CSV -> 正規化済みCSV -> マスターテーブル` の多段階でデータを変換・構築します。
+- **堅牢なデータ抽出**: 年度ごとに異なるCSVの列名やフォーマットの揺れを吸収し、統一されたスキーマを持つマスターテーブルを生成します。
 - **柔軟な実行制御**:
     - 特定のステージからの処理再開
     - 処理対象とする入力ファイルの指定
@@ -24,22 +25,24 @@ FastAPIフレームワークを使用し、フロントエンドアプリケー�
 
 - **言語**: Python 3.9+
 - **フレームワーク**: FastAPI
-- **主要ライブラリ**: Uvicorn, Pandas, OpenPyXL, Python-Multipart
+- **主要ライブラリ**: Uvicorn, Pandas, OpenPyXL
 
 ## プロジェクト構造
 
 ```
 /
 |-- .gitignore
+|-- LICENSE
 |-- README.md
 |-- main.py            # FastAPIアプリケーションのエントリーポイント
 |-- requirements.txt   # 依存ライブラリ
 |-- config.py          # 設定ファイル
-|-- /data/             # データディレクトリ (Git管理外)
+|-- /data/
 |   |-- download/      # <- 元データ(xlsx/zip)をここに配置
-|   |-- raw/
-|   |-- normalized/
-|   `-- processed/
+|   |   `-- .gitkeep
+|   |-- raw/           # (自動生成, Git管理外)
+|   |-- normalized/    # (自動生成, Git管理外)
+|   `-- processed/     # (自動生成, Git管理外)
 |-- /models
 |   `-- api_models.py    # APIのPydanticモデル
 |-- /pipeline
@@ -51,46 +54,30 @@ FastAPIフレームワークを使用し、フロントエンドアプリケー�
 
 ## セットアップと実行手順
 
-### 1. リポジトリのクローン
+### 1. リポジトリのクローンと仮想環境の作成
 ```bash
-git clone <リポジトリURL>
+git clone https://github.com/igomuni/gyoukaku-pipeline.git
 cd gyoukaku-pipeline
-```
-
-### 2. (推奨) 仮想環境の作成と有効化
-```bash
-# 仮想環境を作成
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate  # Windows
 ```
 
-### 3. 依存ライブラリのインストール
+### 2. 依存ライブラリのインストール
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. ディレクトリの準備
-プロジェクトルートに `data` ディレクトリと、その下に `download` ディレクトリを作成してください。
-（`raw`, `normalized`, `processed` は初回実行時に自動生成されます）
-```bash
-mkdir -p data/download
-```
-
-### 5. 元データの配置
+### 3. 元データの配置
 処理対象となる `.xlsx` または `.zip` ファイルを `data/download` ディレクトリに配置します。
 
-### 6. サーバーの起動
+### 4. サーバーの起動
 ```bash
 uvicorn main:app --reload
 ```
 
-### 7. APIドキュメントへのアクセス
-Webブラウザで `http://127.0.0.1:8000/docs` にアクセスすると、対話的なAPIドキュメント（Swagger UI）が表示され、そこから直接APIをテストできます。
+### 5. APIドキュメントへのアクセス
+Webブラウザで `http://127.0.0.1:8000/docs` にアクセスすると、対話的なAPIドキュメントが表示され、APIをテストできます。
 
 ## API仕様
 
@@ -125,23 +112,14 @@ Webブラウザで `http://127.0.0.1:8000/docs` にアクセスすると、対�
 全ジョブの一覧を取得します。
 
 ### `GET /api/pipeline/status/{job_id}`
-指定したジョブの現在のステータスを確認します。処理の完了は、このエンドポイントを定期的にポーリングして検知します。
-
-- **完了時のレスポンス例:**
-  ```json
-  {
-    "job_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-    "status": "completed",
-    "current_stage": "完了",
-    "message": "パイプラインは正常に完了しました。",
-    "results_url": "/api/results/processed_data_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.zip",
-    "error_message": null,
-    "cancel_requested": false
-  }
-  ```
+指定したジョブの現在のステータスを確認します。
 
 ### `POST /api/pipeline/cancel/{job_id}`
 実行中のジョブのキャンセルを要求します。
 
 ### `GET /api/results/{filename}`
 完了したジョブの成果物（ZIPファイル）をダウンロードします。
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
