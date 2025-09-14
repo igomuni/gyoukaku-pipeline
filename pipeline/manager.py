@@ -1,8 +1,7 @@
 import uuid
 import logging
 import traceback
-import shutil
-import zipfile # zipfileライブラリをインポート
+import zipfile
 from typing import Dict, Any, Optional, List
 from threading import Lock
 
@@ -90,13 +89,11 @@ def run_pipeline_async(job_id: str, start_stage: int, target_files: Optional[Lis
             run_stage_03_build_masters(update_status, job_id)
         
         check_for_cancellation(job_id)
-        update_status(current_stage="最終処理", message="成果物をZIPアーカイブにまとめています...")
+        update_status(current_stage="ステージ4: ZIPアーカイブ作成", message="成果物をZIPアーカイブにまとめています...")
         
-        # ========== ここからが修正箇所 ==========
         zip_filename = f"processed_data_{job_id}.zip"
         zip_filepath = PROCESSED_DIR / zip_filename
 
-        # 圧縮対象を明示的に指定（.csvファイルのみ）
         files_to_zip = list(PROCESSED_DIR.glob('*.csv'))
         
         if not files_to_zip:
@@ -104,9 +101,7 @@ def run_pipeline_async(job_id: str, start_stage: int, target_files: Optional[Lis
         else:
             with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for file in files_to_zip:
-                    # arcname=file.name とすることで、ZIPファイル内に余計なディレクトリ構造が作られないようにする
                     zf.write(file, arcname=file.name)
-        # ========== ここまでが修正箇所 ==========
         
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["message"] = "パイプラインは正常に完了しました。"

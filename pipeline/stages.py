@@ -232,11 +232,8 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
                     if col_name in UNQUOTED_COLS:
                         row_values.append(str_value)
                     else:
-                        # ========== ここからが修正箇所 ==========
-                        # 処理を2段階に分けることで、f-stringの構文エラーを回避
                         escaped_str = str_value.replace('"', '""')
                         quoted_value = f'"{escaped_str}"'
-                        # ========== ここまでが修正箇所 ==========
                         row_values.append(quoted_value)
                 
                 f.write(','.join(row_values) + '\n')
