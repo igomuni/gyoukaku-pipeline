@@ -117,7 +117,7 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
     update_status(message="府省庁マスターを生成中...")
     ministry_df = pd.DataFrame(MINISTRY_MASTER_DATA)
     ministry_output_path = PROCESSED_DIR / 'ministry_master.csv'
-    ministry_df.to_csv(ministry_output_path, index=False, encoding='utf-8-sig')
+    ministry_df.to_csv(ministry_output_path, index=False, encoding='utf-8-sig', quoting=csv.QUOTE_MINIMAL)
     logging.info(f"  - Saved 'ministry_master.csv' with {len(ministry_df)} records.")
 
     # 2. Build Business Master
@@ -157,10 +157,8 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
             continue
         
         try:
-            # Pandasでファイルを読み込む (重複列は自動でリネームされる)
             df = pd.read_csv(filepath, low_memory=False, dtype=str, encoding='utf-8-sig')
 
-            # 判定用にクリーンな列名リストを作成
             cleaned_header = [str(col).replace('\n', '').replace('\r', '').replace(' ', '') for col in df.columns]
 
             if EXCLUSION_COL in cleaned_header:
@@ -170,7 +168,6 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
                 logging.info(f"Skipping '{filepath.name}' as not a review sheet.")
                 continue
 
-            # あいまい検索で列名をリネーム
             rename_map = {}
             for original_col in df.columns:
                 clean_col = str(original_col).replace('\n', '').replace('\r', '').replace(' ', '')
@@ -178,17 +175,18 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
                 if clean_col == '府省': rename_map[original_col] = '府省庁'
                 elif clean_col == '事業番号': rename_map[original_col] = '事業番号-1'
                 elif clean_col.startswith('事業の目的'): rename_map[original_col] = '事業の目的'
-                elif clean_col.startswith('事業概要'): rename_map[original_col] = '事業概要'
+                elif clean_col == '事業概要URL':
+                    rename_map[original_col] = '事業概要URL'
+                elif clean_col.startswith('事業概要'):
+                    rename_map[original_col] = '事業概要'
                 elif clean_col.startswith('根拠法令'): rename_map[original_col] = '根拠法令（具体的な条項も記載）'
                 elif clean_col.startswith('現状・課題'): rename_map[original_col] = '現状・課題'
                 elif clean_col in ('政策・施策名', '主要政策・施策'): rename_map[original_col] = '政策'
                 elif clean_col == '主要施策': rename_map[original_col] = '施策'
             df.rename(columns=rename_map, inplace=True)
             
-            # リネームによって生じた重複列を削除（最初の列を保持）
             df = df.loc[:, ~df.columns.duplicated(keep='first')]
             
-            # 事業開始・終了年度の結合
             df['事業開始終了年度'] = ''
             if '事業開始・終了(予定)年度' in df.columns:
                 df['事業開始終了年度'] = df['事業開始・終了(予定)年度'].fillna('')
@@ -218,9 +216,31 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
         
         final_df = master_df.reindex(columns=FINAL_OUTPUT_COLS)
         
-        # ファイル名を 'business_master.csv' に修正
         business_output_path = PROCESSED_DIR / 'business_master.csv'
-        final_df.to_csv(business_output_path, index=False, encoding='utf-8-sig')
+        
+        UNQUOTED_COLS = {'business_id', 'source_year', 'ministry_id'}
+
+        with open(business_output_path, 'w', newline='', encoding='utf-8-sig') as f:
+            f.write(','.join(final_df.columns) + '\n')
+
+            for row in final_df.itertuples(index=False, name=None):
+                row_values = []
+                for i, value in enumerate(row):
+                    col_name = final_df.columns[i]
+                    str_value = str(value) if pd.notna(value) else ''
+                    
+                    if col_name in UNQUOTED_COLS:
+                        row_values.append(str_value)
+                    else:
+                        # ========== ここからが修正箇所 ==========
+                        # 処理を2段階に分けることで、f-stringの構文エラーを回避
+                        escaped_str = str_value.replace('"', '""')
+                        quoted_value = f'"{escaped_str}"'
+                        # ========== ここまでが修正箇所 ==========
+                        row_values.append(quoted_value)
+                
+                f.write(','.join(row_values) + '\n')
+        
         logging.info(f"  - Saved 'business_master.csv' with {len(final_df)} records.")
     
     update_status(message="ステージ3が完了しました。")
