@@ -1,24 +1,31 @@
 import os
 
-# プロンプトに含めるファイルのリスト (git ls-treeの結果に基づく)
+# プロンプトに含めるファイルのリスト (git ls-tree -r --name-only mainの結果に基づく)
 FILES_TO_INCLUDE = [
-    '.gitignore',
-    'LICENSE', # LICENSEファイルを追加
-    'README.md',
+    # 'analysis/header_matrix_generator.py',
     'config.py',
-    # 'data/download/.gitkeep', # .gitkeepは中身が空なので不要
+    # 'create_prompt.py',
+    # 'data/download/.gitkeep',
     'main.py',
-    'models/__init__.py',
+    # 'models/__init__.py',
     'models/api_models.py',
-    'pipeline/__init__.py',
+    # 'pipeline/__init__.py',
+    'pipeline/budget_processing.py',
     'pipeline/manager.py',
     'pipeline/stages.py',
     'requirements.txt',
-    'utils/__init__.py',
+    # 'scripts/debug_2014_budgets.py',
+    # 'scripts/extract_budgets.py',
+    # 'scripts/extract_expenditures.py',
+    # 'scripts/rerun_normalization.py',
+    # 'utils/__init__.py',
     'utils/normalization.py',
+    # '.gitignore',
+    # 'LICENSE',
+    'README.md',
 ]
 
-OUTPUT_FILENAME = "prompt_source.txt"
+OUTPUT_FILENAME = "prompt_source.md"
 
 def create_prompt_file():
     """プロジェクトのソースコードを単一のテキストファイルにまとめる"""
@@ -34,9 +41,9 @@ def create_prompt_file():
             print(f"Processing: {filepath}")
             
             # --- ファイルヘッダーの書き込み ---
-            outfile.write("--- " + "="*20 + "\n")
-            outfile.write(f"--- START OF FILE: {filepath.replace(os.sep, '/')}\n")
-            outfile.write("--- " + "="*20 + "\n\n")
+            outfile.write("--- " + "\n")
+            outfile.write(f"- {filepath.replace(os.sep, '/')}\n")
+            outfile.write("``` " + "\n\n")
             
             # --- ファイル内容の書き込み ---
             try:
@@ -51,9 +58,7 @@ def create_prompt_file():
                 outfile.write(f"# ERROR READING FILE: {e}\n")
 
             # --- ファイルフッターの書き込み ---
-            outfile.write("\n\n--- " + "="*20 + "\n")
-            outfile.write(f"--- END OF FILE: {filepath.replace(os.sep, '/')}\n")
-            outfile.write("--- " + "="*20 + "\n\n\n")
+            outfile.write("\n\n```" + "\n")
 
     print(f"\nSuccessfully created '{OUTPUT_FILENAME}'.")
     print("You can now copy the content of this file into the prompt.")
