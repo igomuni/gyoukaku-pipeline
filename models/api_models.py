@@ -5,7 +5,7 @@ class PipelineRunRequest(BaseModel):
     """パイプライン実行APIのリクエストボディモデル"""
     start_stage: int = Field(
         default=1, 
-        description="パイプラインを開始するステージ番号 (1: CSV変換, 2: 正規化, 3: マスター構築, 4: ZIPアーカイブ作成のみ)"
+        description="パイプラインを開始するステージ番号 (1: CSV変換, 2: 正規化, 3: マスター構築, 4: 予算サマリー構築, 5: ZIPアーカイブ作成のみ)"
     )
     target_files: Optional[List[str]] = Field(
         default=None, 

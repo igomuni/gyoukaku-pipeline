@@ -6,7 +6,10 @@ from typing import Dict, Any, Optional, List
 from threading import Lock
 
 from config import PROCESSED_DIR
-from pipeline.stages import run_stage_01_convert, run_stage_02_normalize, run_stage_03_build_masters
+from pipeline.stages import (
+    run_stage_01_convert, run_stage_02_normalize, run_stage_03_build_masters,
+    run_stage_04_build_budget_summary  # <<< 新しいステージをインポート
+)
 
 # --- グローバルな状態管理 ---
 # インメモリでジョブの状態を管理
@@ -87,9 +90,12 @@ def run_pipeline_async(job_id: str, start_stage: int, target_files: Optional[Lis
         
         if start_stage <= 3:
             run_stage_03_build_masters(update_status, job_id)
+
+        if start_stage <= 4:
+            run_stage_04_build_budget_summary(update_status, job_id)
         
         check_for_cancellation(job_id)
-        update_status(current_stage="ステージ4: ZIPアーカイブ作成", message="成果物をZIPアーカイブにまとめています...")
+        update_status(current_stage="ステージ5: ZIPアーカイブ作成", message="成果物をZIPアーカイブにまとめています...")
         
         zip_filename = f"processed_data_{job_id}.zip"
         zip_filepath = PROCESSED_DIR / zip_filename

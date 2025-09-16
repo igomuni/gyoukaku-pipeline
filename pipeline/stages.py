@@ -14,6 +14,8 @@ from config import (
 )
 from utils.normalization import normalize_text
 
+from pipeline.budget_processing import process_budget_files, PAST_BUDGET_ITEMS, REQUEST_BUDGET_ITEMS
+
 # ロガーの設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -241,3 +243,53 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
         logging.info(f"  - Saved 'business_master.csv' with {len(final_df)} records.")
     
     update_status(message="ステージ3が完了しました。")
+
+
+def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
+    """
+    ステージ4: 予算サマリーテーブルの構築
+    正規化済みCSVから、1事業=1行のワイド形式で予算時系列データを抽出する。
+    """
+    update_status(current_stage="ステージ4: 予算サマリーの構築", message="処理を開始します...")
+    
+    all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
+    if not all_csv_files:
+        logging.warning("[Stage 4] No normalized CSV files found. Skipping.")
+        update_status(message="正規化済みCSVが見つかりません。スキップします。")
+        return
+        
+    # ファイル名から年度を取得するための簡易マップを作成
+    review_year_map = {f.stem: get_year_from_filename(f.name) for f in all_csv_files}
+
+    # 共通ロジックを呼び出してDataFrameを取得
+    final_df = process_budget_files(all_csv_files, review_year_map)
+
+    if final_df.empty:
+        logging.warning("[Stage 4] No budget data could be extracted.")
+        update_status(message="抽出対象の予算データが見つかりませんでした。")
+        return
+
+    # 列の順序を定義・整理
+    final_columns = ['business_id']
+    for i in range(-3, 1):
+        suffix = {-3: '_py3', -2: '_py2', -1: '_py1', 0: ''}[i]
+        for item in PAST_BUDGET_ITEMS:
+            final_columns.append(f"{item}{suffix}")
+    for item in REQUEST_BUDGET_ITEMS:
+        final_columns.append(f"{item}_req")
+        
+    ordered_cols = [col for col in final_columns if col in final_df.columns]
+    other_cols = [col for col in final_df.columns if col not in ordered_cols]
+    final_df = final_df[ordered_cols + other_cols]
+
+    output_path = PROCESSED_DIR / "budgets_timeseries_wide.csv"
+    final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    
+    update_status(message=f"ステージ4が完了しました。{len(final_df)}件のデータを保存しました。")
+
+def get_year_from_filename(filename):
+    """(stages.py内で使うためのヘルパー関数)"""
+    for key, year in FILENAME_YEAR_MAP.items():
+        if key in filename:
+            return year
+    return None

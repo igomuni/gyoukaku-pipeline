@@ -113,6 +113,7 @@ Thumbs.db
 /data/raw/
 /data/normalized/
 /data/processed/
+/data/analysis/
 
 # downloadディレクトリは、中身のファイルをすべて無視する（.gitkeepを除く）
 /data/download/*
