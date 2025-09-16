@@ -7,7 +7,7 @@ from threading import Lock
 
 from config import PROCESSED_DIR
 from pipeline.stages import (
-    run_stage_01_convert, run_stage_02_normalize, run_stage_03_build_masters,
+    run_stage_01_convert, run_stage_02_normalize, run_stage_03_build_business_tables,
     run_stage_04_build_budget_summary  # <<< 新しいステージをインポート
 )
 
@@ -89,7 +89,7 @@ def run_pipeline_async(job_id: str, start_stage: int, target_files: Optional[Lis
             run_stage_02_normalize(update_status, job_id)
         
         if start_stage <= 3:
-            run_stage_03_build_masters(update_status, job_id)
+            run_stage_03_build_business_tables(update_status, job_id)
 
         if start_stage <= 4:
             run_stage_04_build_budget_summary(update_status, job_id)

@@ -110,9 +110,9 @@ def run_stage_02_normalize(update_status: Callable, job_id: str):
     update_status(message="ステージ2が完了しました。")
 
 
-# --- Stage 3: Build Master Tables ---
-def run_stage_03_build_masters(update_status: Callable, job_id: str):
-    update_status(current_stage="ステージ3: マスターテーブルの構築", message="処理を開始します...")
+# --- Stage 3: Build Business Tables ---
+def run_stage_03_build_business_tables(update_status: Callable, job_id: str):
+    update_status(current_stage="ステージ3: 事業テーブルの構築", message="処理を開始します...")
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     # 1. Build Ministry Master
@@ -122,8 +122,8 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
     ministry_df.to_csv(ministry_output_path, index=False, encoding='utf-8-sig', quoting=csv.QUOTE_MINIMAL)
     logging.info(f"  - Saved 'ministry_master.csv' with {len(ministry_df)} records.")
 
-    # 2. Build Business Master
-    update_status(message="事業マスターを生成中...")
+    # 2. Build Business Tables
+    update_status(message="事業テーブルを生成中...")
     all_business_records = []
     
     REQUIRED_COLS_FOR_REVIEW_SHEET = {'府省', '府省庁', '事業名', '事業番号', '事業番号-1'}
@@ -218,7 +218,7 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
         
         final_df = master_df.reindex(columns=FINAL_OUTPUT_COLS)
         
-        business_output_path = PROCESSED_DIR / 'business_master.csv'
+        business_output_path = PROCESSED_DIR / 'business.csv'
         
         UNQUOTED_COLS = {'business_id', 'source_year', 'ministry_id'}
 
@@ -240,17 +240,17 @@ def run_stage_03_build_masters(update_status: Callable, job_id: str):
                 
                 f.write(','.join(row_values) + '\n')
         
-        logging.info(f"  - Saved 'business_master.csv' with {len(final_df)} records.")
+        logging.info(f"  - Saved 'business.csv' with {len(final_df)} records.")
     
     update_status(message="ステージ3が完了しました。")
 
 
 def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
     """
-    ステージ4: 予算サマリーテーブルの構築
+    ステージ4: 予算テーブルの構築
     正規化済みCSVから、1事業=1行のワイド形式で予算時系列データを抽出する。
     """
-    update_status(current_stage="ステージ4: 予算サマリーの構築", message="処理を開始します...")
+    update_status(current_stage="ステージ4: 予算テーブルの構築", message="処理を開始します...")
     
     all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
     if not all_csv_files:
@@ -282,7 +282,7 @@ def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
     other_cols = [col for col in final_df.columns if col not in ordered_cols]
     final_df = final_df[ordered_cols + other_cols]
 
-    output_path = PROCESSED_DIR / "budgets_timeseries_wide.csv"
+    output_path = PROCESSED_DIR / "budgets.csv"
     final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
     
     update_status(message=f"ステージ4が完了しました。{len(final_df)}件のデータを保存しました。")
