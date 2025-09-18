@@ -8,13 +8,12 @@ from threading import Lock
 from config import PROCESSED_DIR
 from pipeline.stages import (
     run_stage_01_convert, run_stage_02_normalize, run_stage_03_build_business_tables,
-    run_stage_04_build_budget_summary  # <<< 新しいステージをインポート
+    run_stage_04_build_budget_summary, run_stage_05_build_fund_flow, 
+    run_stage_06_build_expenditure
 )
 
 # --- グローバルな状態管理 ---
-# インメモリでジョブの状態を管理
 jobs: Dict[str, Dict[str, Any]] = {}
-# パイプラインの同時実行を防ぐためのロック
 PIPELINE_LOCK = Lock()
 
 class JobCancelledError(Exception):
@@ -94,19 +93,32 @@ def run_pipeline_async(job_id: str, start_stage: int, target_files: Optional[Lis
         if start_stage <= 4:
             run_stage_04_build_budget_summary(update_status, job_id)
         
+        if start_stage <= 5:
+            run_stage_05_build_fund_flow(update_status, job_id)
+            
+        if start_stage <= 6:
+            run_stage_06_build_expenditure(update_status, job_id)
+
         check_for_cancellation(job_id)
-        update_status(current_stage="ステージ5: ZIPアーカイブ作成", message="成果物をZIPアーカイブにまとめています...")
+        update_status(current_stage="ステージ7: ZIPアーカイブ作成", message="成果物をZIPアーカイブにまとめています...")
         
         zip_filename = f"processed_data_{job_id}.zip"
         zip_filepath = PROCESSED_DIR / zip_filename
 
-        files_to_zip = list(PROCESSED_DIR.glob('*.csv'))
+        files_to_zip = [
+            PROCESSED_DIR / 'business.csv',
+            PROCESSED_DIR / 'ministries.csv',
+            PROCESSED_DIR / 'budgets.csv',
+            PROCESSED_DIR / 'fund_flow.csv',
+            PROCESSED_DIR / 'expenditure.csv',
+        ]
+        existing_files_to_zip = [f for f in files_to_zip if f.exists()]
         
-        if not files_to_zip:
-             logging.warning(f"No CSV files found in {PROCESSED_DIR} to zip.")
+        if not existing_files_to_zip:
+             logging.warning(f"No standard CSV files found in {PROCESSED_DIR} to zip.")
         else:
             with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for file in files_to_zip:
+                for file in existing_files_to_zip:
                     zf.write(file, arcname=file.name)
         
         jobs[job_id]["status"] = "completed"

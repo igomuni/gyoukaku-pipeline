@@ -16,6 +16,8 @@ from utils.normalization import normalize_text
 # --- 処理ロジックのインポート ---
 from pipeline.business_processing import build_business_tables
 from pipeline.budget_processing import process_budget_files, PAST_BUDGET_ITEMS, REQUEST_BUDGET_ITEMS
+from pipeline.fund_flow_processing import process_fund_flow
+from pipeline.expenditure_processing import process_expenditures, EXPENDITURE_LIST_ITEMS
 
 
 # ロガーの設定
@@ -118,14 +120,11 @@ def run_stage_03_build_business_tables(update_status: Callable, job_id: str):
     ステージ3: 事業テーブルの構築（外部モジュール呼び出し）
     """
     build_business_tables(update_status, job_id)
-    # このステージの具体的な処理は business_processing.py に移譲された
-
 
 # --- Stage 4: Build Budget Summary ---
 def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
     """
     ステージ4: 予算テーブルの構築
-    正規化済みCSVから、1事業=1行のワイド形式で予算時系列データを抽出する。
     """
     update_status(current_stage="ステージ4: 予算テーブルの構築", message="処理を開始します...")
     
@@ -135,10 +134,7 @@ def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
         update_status(message="正規化済みCSVが見つかりません。スキップします。")
         return
         
-    # ファイル名から年度を取得するための簡易マップを作成
     review_year_map = {f.stem: get_year_from_filename(f.name) for f in all_csv_files}
-
-    # 共通ロジックを呼び出してDataFrameを取得
     final_df = process_budget_files(all_csv_files, review_year_map)
 
     if final_df.empty:
@@ -146,7 +142,6 @@ def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
         update_status(message="抽出対象の予算データが見つかりませんでした。")
         return
 
-    # 列の順序を定義・整理
     final_columns = ['business_id']
     for i in range(-3, 1):
         suffix = {-3: '_py3', -2: '_py2', -1: '_py1', 0: ''}[i]
@@ -163,6 +158,63 @@ def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
     final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
     
     update_status(message=f"ステージ4が完了しました。{len(final_df)}件のデータを保存しました。")
+
+
+# --- Stage 5: Build Fund Flow Table ---
+def run_stage_05_build_fund_flow(update_status: Callable, job_id: str):
+    """
+    ステージ5: 資金の流れテーブルの構築
+    """
+    update_status(current_stage="ステージ5: 資金の流れテーブル構築", message="処理を開始します...")
+    
+    all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
+    if not all_csv_files:
+        logging.warning("[Stage 5] No normalized CSV files found. Skipping.")
+        update_status(message="正規化済みCSVが見つかりません。スキップします。")
+        return
+    
+    final_df = process_fund_flow(all_csv_files)
+    
+    if not final_df.empty:
+        output_columns = [
+            'business_id', 'block_id', 'sequence', 
+            '支払先費目', '支払先使途', '支払先金額(百万円)', '支払先計'
+        ]
+        final_df = final_df.reindex(columns=output_columns)
+        
+        output_path = PROCESSED_DIR / "fund_flow.csv"
+        final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+        update_status(message=f"ステージ5が完了しました。{len(final_df)}件のデータを保存しました。")
+    else:
+        update_status(message="ステージ5は完了しましたが、対象データは見つかりませんでした。")
+
+
+# --- Stage 6: Build Expenditure Table ---
+def run_stage_06_build_expenditure(update_status: Callable, job_id: str):
+    """
+    ステージ6: 支出テーブルの構築
+    """
+    update_status(current_stage="ステージ6: 支出テーブル構築", message="処理を開始します...")
+
+    all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
+    if not all_csv_files:
+        logging.warning("[Stage 6] No normalized CSV files found. Skipping.")
+        update_status(message="正規化済みCSVが見つかりません。スキップします。")
+        return
+        
+    final_df = process_expenditures(all_csv_files)
+    
+    if not final_df.empty:
+        base_cols = ['business_id', 'block_id', 'sequence']
+        output_columns = base_cols + EXPENDITURE_LIST_ITEMS
+        final_df = final_df.reindex(columns=output_columns)
+        
+        output_path = PROCESSED_DIR / "expenditure.csv"
+        final_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+        update_status(message=f"ステージ6が完了しました。{len(final_df)}件のデータを保存しました。")
+    else:
+        update_status(message="ステージ6は完了しましたが、対象データは見つかりませんでした。")
+
 
 def get_year_from_filename(filename):
     """(stages.py内で使うためのヘルパー関数)"""
