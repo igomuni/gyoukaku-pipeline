@@ -86,21 +86,26 @@ def process_expenditures(file_paths: list[Path]) -> pd.DataFrame:
                     if not col_name.startswith(PREFIX) or pd.isna(row[col_name]) or str(row[col_name]).strip() == '':
                         continue
 
-                    block_id, sequence, item_name = None, None, None
+                    block_id, sequence, raw_item_name = None, None, None
 
                     match_2015 = pattern_2015_on.match(col_name)
                     if match_2015:
-                        block_id, sequence, raw_item = match_2015.groups()
-                        item_name = re.sub(r'\(.*\)|-\d+$', '', raw_item).strip()
+                        block_id, sequence, raw_item_name = match_2015.groups()
                     else:
                         match_2014 = pattern_2014.match(col_name)
                         if match_2014:
                             block_id = 'グループ'
-                            item_name, sequence = match_2014.groups()
+                            raw_item_name, sequence = match_2014.groups()
                     
-                    if item_name in EXPENDITURE_LIST_ITEMS:
-                        record_key = f"{block_id}-{sequence}"
-                        business_expenditures[record_key][item_name] = row[col_name]
+                    if raw_item_name:
+                        # === ▼▼▼ 修正箇所 ▼▼▼ ===
+                        # どの年度の形式であっても、ここで共通の正規化処理を適用する
+                        item_name = re.sub(r'\(.*\)|-\d+$', '', raw_item_name).strip()
+                        # ========================
+                        
+                        if item_name in EXPENDITURE_LIST_ITEMS:
+                            record_key = f"{block_id}-{sequence}"
+                            business_expenditures[record_key][item_name] = row[col_name]
 
                 for key, data_dict in business_expenditures.items():
                     block_id, sequence = key.split('-', 1)
