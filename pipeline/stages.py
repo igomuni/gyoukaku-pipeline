@@ -50,7 +50,10 @@ def run_stage_01_convert(update_status: Callable, job_id: str, target_files: Opt
                 with open(output_path, 'w', newline='', encoding='utf-8-sig') as csv_file:
                     csv_writer = csv.writer(csv_file, quoting=csv.QUOTE_ALL)
                     for row in worksheet.iter_rows(values_only=True):
-                        escaped_row = [str(cell).replace('\n', '\\n').replace('\r', '') if cell is not None else "" for cell in row]
+                        # === ▼▼▼ 修正箇所 ▼▼▼ ===
+                        # 改行コード(\n)を<br>タグに置換する
+                        escaped_row = [str(cell).replace('\r', '').replace('\n', '<br>') if cell is not None else "" for cell in row]
+                        # ========================
                         csv_writer.writerow(escaped_row)
         except Exception as e:
             logging.error(f"  [ERROR] Failed to process Excel data from {file_stem}: {e}", exc_info=True)
@@ -104,7 +107,10 @@ def run_stage_02_normalize(update_status: Callable, job_id: str):
                     writer.writerow([normalize_text(cell) for cell in header])
                 
                 for row in reader:
-                    normalized_row = [normalize_text(cell.replace('\\n', '\n')) for cell in row]
+                    # === ▼▼▼ 修正箇所 ▼▼▼ ===
+                    # 不要な置換処理を削除し、<br>タグはそのまま正規化処理へ渡す
+                    normalized_row = [normalize_text(cell) for cell in row]
+                    # ========================
                     writer.writerow(normalized_row)
 
         except Exception as e:
@@ -116,16 +122,10 @@ def run_stage_02_normalize(update_status: Callable, job_id: str):
 
 # --- Stage 3: Build Business Tables ---
 def run_stage_03_build_business_tables(update_status: Callable, job_id: str):
-    """
-    ステージ3: 事業テーブルの構築（外部モジュール呼び出し）
-    """
     build_business_tables(update_status, job_id)
 
 # --- Stage 4: Build Budget Summary ---
 def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
-    """
-    ステージ4: 予算テーブルの構築
-    """
     update_status(current_stage="ステージ4: 予算テーブルの構築", message="処理を開始します...")
     
     all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
@@ -162,9 +162,6 @@ def run_stage_04_build_budget_summary(update_status: Callable, job_id: str):
 
 # --- Stage 5: Build Fund Flow Table ---
 def run_stage_05_build_fund_flow(update_status: Callable, job_id: str):
-    """
-    ステージ5: 資金の流れテーブルの構築
-    """
     update_status(current_stage="ステージ5: 資金の流れテーブル構築", message="処理を開始します...")
     
     all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
@@ -191,9 +188,6 @@ def run_stage_05_build_fund_flow(update_status: Callable, job_id: str):
 
 # --- Stage 6: Build Expenditure Table ---
 def run_stage_06_build_expenditure(update_status: Callable, job_id: str):
-    """
-    ステージ6: 支出テーブルの構築
-    """
     update_status(current_stage="ステージ6: 支出テーブル構築", message="処理を開始します...")
 
     all_csv_files = sorted(list(NORMALIZED_DIR.glob('*.csv')))
@@ -217,7 +211,6 @@ def run_stage_06_build_expenditure(update_status: Callable, job_id: str):
 
 
 def get_year_from_filename(filename):
-    """(stages.py内で使うためのヘルパー関数)"""
     for key, year in FILENAME_YEAR_MAP.items():
         if key in filename:
             return year
