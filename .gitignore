@@ -100,6 +100,14 @@ ENV/
 env.bak/
 venv.bak/
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Text-to-SQL App History
+history.db
+
 # IDE-specific files
 .idea/
 .vscode/
