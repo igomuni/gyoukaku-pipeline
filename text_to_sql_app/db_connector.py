@@ -33,9 +33,13 @@ def get_db_connection() -> duckdb.DuckDBPyConnection | None:
     # /data/processed/ 内のCSVファイルをDuckDBのビューとして登録
     for file_path in csv_files:
         table_name = file_path.stem  # ファイル名から拡張子を除いた部分をテーブル名とする
-        # `read_csv_auto` はカラムの型を自動推論してくれる便利な関数
-        # ビューとして登録することで、元のCSVが更新されてもクエリは最新のデータに追随
-        con.sql(f"CREATE OR REPLACE VIEW {table_name} AS SELECT * FROM read_csv_auto('{str(file_path).replace('\\', '/')}')")
+        
+        # ▼▼▼【ここが修正点】▼▼▼
+        # Windowsのパス区切り文字'\'に対応するため、.as_posix() を使用して
+        # パスを常に'/'区切りに変換する。
+        posix_path = file_path.as_posix()
+        con.sql(f"CREATE OR REPLACE VIEW {table_name} AS SELECT * FROM read_csv_auto('{posix_path}')")
+        # ▲▲▲【ここまでが修正点】▲▲▲
 
     return con
 
