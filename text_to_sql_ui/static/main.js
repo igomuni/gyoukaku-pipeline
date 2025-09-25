@@ -31,6 +31,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentResultData = null;
     let fullHistory = [];
     let dataTable = null;
+    // ▼▼▼【ここからが修正点】▼▼▼
+    let lastLoadedHistoryItem = null; // 最後にクリック（または自動読み込み）された履歴の「内容」を保持する
+    let isInitialLoad = true; // 初回読み込みフラグ
+    // ▲▲▲【ここまでが修正点】▲▲▲
 
     const sampleQuestions = [
         "省庁別の事業数が多い順にトップ5を教えて",
@@ -44,28 +48,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const init = async () => {
         await fetchPromptTemplate();
         await fetchHistory();
-
-        // ▼▼▼【ここからが修正点】▼▼▼
-        // Initialize Split.js
         Split(['#col-1', '#col-2', '#col-3'], {
-            sizes: [25, 45, 30], // Initial sizes in percentage
-            minSize: [250, 450, 300], // Minimum size in pixels
+            sizes: [25, 45, 30],
+            minSize: [250, 450, 300],
             gutterSize: 10,
             cursor: 'col-resize',
-            onDrag: () => {
-                // Adjust DataTable column widths on resize
-                if (dataTable) {
-                    dataTable.columns.adjust().draw();
-                }
-            }
+            onDrag: () => { if (dataTable) { dataTable.columns.adjust().draw(); } }
         });
-        // ▲▲▲【ここまでが修正点】▲▲▲
     };
 
     const executeSql = async () => {
-        const sql = sqlInput.value.trim();
-        const question = questionInput.value.trim();
-        if (!sql) { alert('SQLクエリを入力してください'); return; }
+        const currentQuestion = questionInput.value.trim();
+        const currentSql = sqlInput.value.trim();
+        if (!currentSql) { alert('SQLクエリを入力してください'); return; }
+
         resultMessage.textContent = '実行中...';
         if (dataTable) { dataTable.destroy(); dataTable = null; }
         resultTableContainer.innerHTML = '';
@@ -73,12 +69,31 @@ document.addEventListener('DOMContentLoaded', () => {
         copyCsvBtn.style.display = 'none';
         downloadCsvBtn.style.display = 'none';
         currentResultData = null;
+
         try {
+            // ▼▼▼【ここからが修正点】▼▼▼
+            let historyIdToSend = null;
+            // 最後に読み込んだ履歴があり、かつ現在の入力内容がその履歴と完全に一致するかをチェック
+            if (lastLoadedHistoryItem &&
+                (lastLoadedHistoryItem.question || '').trim() === currentQuestion &&
+                (lastLoadedHistoryItem.sql_query || '').trim() === currentSql) 
+            {
+                historyIdToSend = lastLoadedHistoryItem.id;
+            }
+
+            const payload = {
+                sql: currentSql,
+                question: currentQuestion,
+                history_id: historyIdToSend
+            };
+            // ▲▲▲【ここまでが修正点】▲▲▲
+
             const response = await fetch('/api/execute-sql', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sql, question }),
+                body: JSON.stringify(payload),
             });
+            
             const data = await response.json();
             if (response.ok) {
                 currentResultData = data.result;
@@ -96,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resultTableContainer.innerHTML = `<pre style="color:red;">${error.message}</pre>`;
         } finally {
             executeSqlBtn.disabled = false;
+            lastLoadedHistoryItem = null; // 実行後は必ずリセット
             await fetchHistory();
         }
     };
@@ -104,8 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dataTable) { dataTable.destroy(); dataTable = null; }
         resultTableContainer.innerHTML = '';
         if (!data || !data.columns || !data.data) {
-            resultMessage.textContent = '結果が空または不正な形式です。';
-            return;
+            resultMessage.textContent = '結果が空または不正な形式です。'; return;
         }
         const tableHeaders = data.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('');
         const tableBody = data.data.map(rowData => {
@@ -115,8 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tableHTML = `<table id="result-data-table" class="display" style="width:100%"><thead><tr>${tableHeaders}</tr></thead><tbody>${tableBody}</tbody></table>`;
         resultTableContainer.innerHTML = tableHTML;
         dataTable = new DataTable('#result-data-table', {
-            scrollX: true,
-            destroy: true,
+            scrollX: true, destroy: true,
             language: { "sProcessing": "処理中...", "sLengthMenu": "_MENU_ 件表示", "sZeroRecords": "データはありません。", "sInfo": "_TOTAL_ 件中 _START_ から _END_ まで表示", "sInfoEmpty": "0 件中 0 から 0 まで表示", "sInfoFiltered": "（全 _MAX_ 件より抽出）", "sInfoPostFix": "", "sSearch": "検索:", "sUrl": "", "oPaginate": { "sFirst": "先頭", "sPrevious": "前", "sNext": "次", "sLast": "最終" } }
         });
     };
@@ -127,14 +141,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('履歴の取得に失敗しました');
             fullHistory = await response.json();
             renderHistory(fullHistory);
+
+            // ▼▼▼【ここからが修正点】▼▼▼
+            // 初回読み込み時のみ、最新の履歴を自動でフォームに設定
+            if (isInitialLoad && fullHistory.length > 0) {
+                loadHistoryItemIntoForm(fullHistory[0]);
+                isInitialLoad = false;
+            }
+            // ▲▲▲【ここまでが修正点】▲▲▲
         } catch (error) {
             historyList.innerHTML = `<p style="color:red;">${error.message}</p>`;
         }
     };
     
-    const exportHistory = () => {
-        window.location.href = '/api/history/export';
-    };
+    const exportHistory = () => { window.location.href = '/api/history/export'; };
 
     const importHistory = async (event) => {
         const file = event.target.files[0];
@@ -194,10 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderHistory = (history) => {
-        if (history.length === 0) {
-            historyList.innerHTML = '<p>履歴はありません。</p>';
-            return;
-        }
+        if (history.length === 0) { historyList.innerHTML = '<p>履歴はありません。</p>'; return; }
         historyList.innerHTML = '';
         history.forEach(item => {
             const div = document.createElement('div');
@@ -214,11 +231,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             div.innerHTML = `
                 <div class="history-item-header">
-                    <p>${escapeHtml(new Date(item.timestamp).toLocaleString())}</p>
+                    <p>
+                        <span class="execution-count" title="実行回数">${item.execution_count || 1}</span>
+                        ${escapeHtml(new Date(item.timestamp).toLocaleString())}
+                    </p>
                     <div class="history-item-actions">
                         <button class="copy-history-btn small-btn" data-history-id="${item.id}">コピー</button>
                         <button class="delete-history-btn icon-btn" data-history-id="${item.id}" title="削除">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                         </button>
                     </div>
                 </div>
@@ -231,17 +251,44 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             div.querySelector('.copy-history-btn').addEventListener('click', (e) => { e.stopPropagation(); copyHistoryItem(item.id); });
             div.querySelector('.delete-history-btn').addEventListener('click', (e) => { e.stopPropagation(); deleteHistoryItem(item.id); });
-            div.addEventListener('click', (e) => { if(!e.target.closest('button')) { questionInput.value = item.question || ''; sqlInput.value = item.sql_query; } });
+
+            // ▼▼▼【ここからが修正点】▼▼▼
+            div.addEventListener('click', (e) => {
+                if(!e.target.closest('button')) {
+                    loadHistoryItemIntoForm(item);
+                }
+            });
+            // ▲▲▲【ここまでが修正点】▲▲▲
             historyList.appendChild(div);
         });
     };
+    
+    // ▼▼▼【ここからが修正点】▼▼▼
+    const loadHistoryItemIntoForm = (item) => {
+        questionInput.value = item.question || '';
+        sqlInput.value = item.sql_query || '';
+        // 最後にクリック（または自動読み込み）された履歴の「内容」を保持する
+        lastLoadedHistoryItem = {
+            id: item.id,
+            question: item.question,
+            sql_query: item.sql_query
+        };
+    };
+    // ▲▲▲【ここまでが修正点】▲▲▲
     
     const getCsvContent = () => { if (!currentResultData) return null; const { columns, data } = currentResultData; const escapeCsvCell = (cell) => { const strCell = String(cell ?? ''); if (strCell.includes(',') || strCell.includes('"') || strCell.includes('\n')) { return `"${strCell.replace(/"/g, '""')}"`; } return strCell; }; const header = columns.map(escapeCsvCell).join(','); const rows = data.map(row => row.map(escapeCsvCell).join(',')); return [header, ...rows].join('\n'); };
     const copyResultAsCsv = () => { const csvContent = getCsvContent(); if (!csvContent) return; navigator.clipboard.writeText(csvContent).then(() => alert('結果をCSV形式でコピーしました！')).catch(err => alert('CSVのコピーに失敗しました: ' + err)); };
     const downloadResultAsCsv = () => { const csvContent = getCsvContent(); if (!csvContent) return; const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, ""); link.setAttribute("download", `export_${timestamp}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); };
     const fetchPromptTemplate = async () => { try { const response = await fetch('/api/get-prompt-template'); if (!response.ok) throw new Error('プロンプトの取得に失敗しました'); const data = await response.json(); promptTemplate = data.template; } catch (error) { alert(error.message); } };
     const getFormattedPrompt = () => { const question = questionInput.value.trim(); return promptTemplate.replace('{{question}}', question || '(ここに質問を入力)'); };
-    const loadSampleQuestion = () => { questionInput.value = sampleQuestions[sampleIndex]; sampleIndex = (sampleIndex + 1) % sampleQuestions.length; };
+    
+    const loadSampleQuestion = () => { 
+        questionInput.value = sampleQuestions[sampleIndex]; 
+        sqlInput.value = '';
+        sampleIndex = (sampleIndex + 1) % sampleQuestions.length;
+        lastLoadedHistoryItem = null; // サンプル読み込みは常に新規
+    };
+
     const openPromptModal = () => { promptModalTextarea.value = getFormattedPrompt(); promptModal.style.display = 'flex'; };
     const closePromptModal = () => { promptModal.style.display = 'none'; };
     const copyPromptFromModal = () => { navigator.clipboard.writeText(promptModalTextarea.value).then(() => alert('プロンプトをコピーしました！')).catch(err => alert('コピーに失敗しました: ' + err)); };
@@ -262,6 +309,10 @@ document.addEventListener('DOMContentLoaded', () => {
     pasteQuestionBtn.addEventListener('click', () => navigator.clipboard.readText().then(text => questionInput.value = text));
     copySqlBtn.addEventListener('click', () => navigator.clipboard.writeText(sqlInput.value));
     pasteSqlBtn.addEventListener('click', () => navigator.clipboard.readText().then(text => sqlInput.value = text));
+
+    // ▼▼▼【ここが修正点】▼▼▼
+    // inputイベントは不要
+    // ▲▲▲【ここまでが修正点】▲▲▲
 
     showPromptModalBtn.addEventListener('click', openPromptModal);
     closeModalBtn.addEventListener('click', closePromptModal);
